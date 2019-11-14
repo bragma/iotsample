@@ -1,3 +1,6 @@
+const logger = require('pino')({
+	base: null
+});
 const MqttWs = require('azure-iot-device-mqtt').MqttWs;
 const IoT = require('azure-iot-device');
 const NoRetry = require('azure-iot-common').NoRetry;
@@ -5,19 +8,27 @@ const NoRetry = require('azure-iot-common').NoRetry;
 const config = require('./config.json');
 const iotClient = IoT.Client.fromConnectionString(config.HubConnectionString, MqttWs);
 
-const sendTelemetryInterval = 10000;
+const sendTelemetryInterval = 20 * 60 * 1000;
 
 let iotConnected = false;
 
 iotClient.on('error', err => {
-	console.error(err);
+	logger.error(err, 'generic client failure');
+});
+
+iotClient.onDeviceMethod('ping', async (request, response) => {
+	try {
+		await response.send(200, request.payload);
+	} catch (err) {
+		logger.error(err, 'device method failed');
+	}
 });
 
 iotClient.on('disconnect', () => {
 
 	iotConnected = false;
 
-	console.log('IOT disconnected');
+	logger.info('disconnected');
 
 	// Try to riconnect
 	iotConnect();
@@ -27,17 +38,17 @@ function onIoTConnection() {
 	iotClient.setRetryPolicy(new NoRetry());
 	iotConnected = true;
 
-	console.log('IOT connected');
+	logger.info('connected');
 }
 
 
 function iotConnect() {
-	console.log('IOT connecting');
+	logger.info('connecting');
 
 	iotClient.open()
 		.then(() => onIoTConnection())
 		.catch(err => {
-			console.error("open error");
+			logger.error(err, 'open failed')
 
 			// Here it should try to reconnect
 		});
@@ -46,15 +57,15 @@ function iotConnect() {
 
 function sendTelemetry() {
 	if (iotConnected) {
-		console.log("Sending message");
+		logger.info('sending message');
 
 		const msg = new IoT.Message(new Date().toString());
 		return iotClient.sendEvent(msg)
 			.then(result => {
-				console.log("Message Sent:", result.transportObj.messageId);
+				logger.info(result.transportObj.messageId, 'message sent');
 			})
 			.catch(err => {
-				console.error("send error");
+				logger.error(err, 'send failed');
 
 				// Not sure what to do here...
 			})
