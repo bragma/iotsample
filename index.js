@@ -4,11 +4,11 @@ const logger = require('pino')({
 const MqttWs = require('azure-iot-device-mqtt').MqttWs;
 const IoT = require('azure-iot-device');
 const NoRetry = require('azure-iot-common').NoRetry;
-
+const ExpBackoff = require('azure-iot-common').ExponentialBackOffWithJitter;
 const config = require('./config.json');
 const iotClient = IoT.Client.fromConnectionString(config.HubConnectionString, MqttWs);
 
-const sendTelemetryInterval = 20 * 60 * 1000;
+const sendTelemetryInterval = 1000;
 
 let iotConnected = false;
 
@@ -35,7 +35,9 @@ iotClient.on('disconnect', () => {
 });
 
 function onIoTConnection() {
+
 	iotClient.setRetryPolicy(new NoRetry());
+
 	iotConnected = true;
 
 	logger.info('connected');
@@ -45,12 +47,14 @@ function onIoTConnection() {
 function iotConnect() {
 	logger.info('connecting');
 
+	iotClient.setRetryPolicy(new ExpBackoff());
 	iotClient.open()
 		.then(() => onIoTConnection())
 		.catch(err => {
 			logger.error(err, 'open failed')
 
-			// Here it should try to reconnect
+			// Try to riconnect
+			iotConnect();
 		});
 }
 
@@ -66,10 +70,8 @@ function sendTelemetry() {
 			})
 			.catch(err => {
 				logger.error(err, 'send failed');
-
-				// Not sure what to do here...
 			})
-			.then(() => {
+			.finally(() => {
 				setTimeout(sendTelemetry, sendTelemetryInterval);
 			})
 	} else {
