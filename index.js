@@ -8,7 +8,7 @@ const ExpBackoff = require('azure-iot-common').ExponentialBackOffWithJitter;
 const config = require('./config.json');
 const iotClient = IoT.Client.fromConnectionString(config.HubConnectionString, MqttWs);
 
-const sendTelemetryInterval = 1000;
+const sendTelemetryInterval = 20 * 60 * 1000;
 
 let iotConnected = false;
 
@@ -17,6 +17,7 @@ iotClient.on('error', err => {
 });
 
 iotClient.onDeviceMethod('ping', async (request, response) => {
+	logger.info(request.payload, 'ping received')
 	try {
 		await response.send(200, request.payload);
 	} catch (err) {
