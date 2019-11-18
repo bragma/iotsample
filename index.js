@@ -8,7 +8,7 @@ const ExpBackoff = require('azure-iot-common').ExponentialBackOffWithJitter;
 const config = require('./config.json');
 const iotClient = IoT.Client.fromConnectionString(config.HubConnectionString, MqttWs);
 
-const sendTelemetryInterval = 20 * 60 * 1000;
+const sendTelemetryInterval = 5 * 1000;
 
 let iotConnected = false;
 
@@ -26,14 +26,17 @@ iotClient.onDeviceMethod('ping', async (request, response) => {
 });
 
 iotClient.on('disconnect', () => {
+	logger.info('disconnected event');
 
+	cleanUpAndReconnect();
+});
+
+function cleanUpAndReconnect() {
 	iotConnected = false;
-
-	logger.info('disconnected');
 
 	// Try to riconnect
 	iotConnect();
-});
+}
 
 function onIoTConnection() {
 
@@ -54,19 +57,31 @@ function iotConnect() {
 		.catch(err => {
 			logger.error(err, 'open failed')
 
-			// Try to riconnect
-			iotConnect();
+			cleanUpAndReconnect();
 		});
 }
 
 
 function sendTelemetry() {
 	if (iotConnected) {
+
 		logger.info('sending message');
 
 		const msg = new IoT.Message(new Date().toString());
+
+		const timeoutObj = setTimeout(() => {
+
+			logger.warn('Timeout on sendEvent. Closing Connection and Restarting.');
+
+			iotClient.close();
+			cleanUpAndReconnect();
+			
+		  }, 20000) // 20 Second Timeout on sendEvent
+
+
 		return iotClient.sendEvent(msg)
 			.then(result => {
+				clearTimeout(timeoutObj);
 				logger.info(result.transportObj.messageId, 'message sent');
 			})
 			.catch(err => {
@@ -74,7 +89,8 @@ function sendTelemetry() {
 			})
 			.finally(() => {
 				setTimeout(sendTelemetry, sendTelemetryInterval);
-			})
+			});
+		  
 	} else {
 		setTimeout(sendTelemetry, sendTelemetryInterval);
 	}
