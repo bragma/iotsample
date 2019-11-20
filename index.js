@@ -9,7 +9,7 @@ const ExpBackoff = require('azure-iot-common').ExponentialBackOffWithJitter;
 const config = require('./config.json');
 const iotClient = IoT.Client.fromConnectionString(config.HubConnectionString, MqttWs);
 
-const sendTelemetryInterval = 20 * 1000;
+const sendTelemetryInterval = 5 * 1000;
 
 const CLIENT_STATE = {
 	DISCONNECTED: 'disconnected',
@@ -110,15 +110,14 @@ async function sendTelemetry() {
 		const msg = new IoT.Message(new Date().toString());
 
 		try {
-			const result = await Promise.race([iotClient.sendEvent(msg), new Promise(function(resolve, reject) {
-				iotCancelSend = function() {
-					reject(new Error('Promise canceled'))
-				};
-			})]);
-			cancelSendTelemetry();
+			const cp = cancellablePromise();
+			iotCancelSend = cp.cancel;
+			const result = await Promise.race([iotClient.sendEvent(msg), cp.promise]);
 			logger.info(result.transportObj.messageId, 'message sent');
 		} catch(err) {
 			logger.error(err, 'send failed');
+		} finally {
+			iotCancelSend = null;
 		}
 	}
 }
@@ -130,7 +129,15 @@ function cancelSendTelemetry() {
 	}
 }
 
-setInterval(sendTelemetry, sendTelemetryInterval);
+function cancellablePromise() {
+	let cancel;
+	const promise = new Promise((resolve, reject) => {
+		cancel = () => reject(new Error('Promise canceled'));
+	});
+	return { promise, cancel };
+}
+
+// setInterval(sendTelemetry, sendTelemetryInterval);
 
 readline.emitKeypressEvents(process.stdin);
 process.stdin.setRawMode(true);
